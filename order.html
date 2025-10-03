@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>สั่งซื้อบริการเพิ่มยอด</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f9f4; padding: 20px; }
+    label { display: block; margin-top: 10px; font-weight: bold; }
+    select, input, button {
+      width: 100%; padding: 8px; margin-top: 5px;
+      border-radius: 5px; border: 1px solid #ccc;
+    }
+    button {
+      background: #4CAF50; color: white; font-size: 16px;
+      cursor: pointer; border: none; margin-top: 15px;
+    }
+    .price { margin-top: 10px; font-weight: bold; color: #2e7d32; }
+    .slip-preview { margin-top: 10px; max-width: 100%; }
+  </style>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body>
+  <h2>สั่งซื้อบริการเพิ่มยอด</h2>
+
+  <label for="appSelect">เลือกแอพ</label>
+  <select id="appSelect">
+    <option value="">-- เลือกแอพ --</option>
+    <option value="TikTok">TikTok</option>
+    <option value="Facebook">Facebook</option>
+  </select>
+
+  <label for="serviceSelect">เลือกบริการ</label>
+  <select id="serviceSelect" disabled>
+    <option value="">-- กรุณาเลือกแอพก่อน --</option>
+  </select>
+
+  <label for="amountSelect">เลือกจำนวน</label>
+  <select id="amountSelect" disabled>
+    <option value="">-- กรุณาเลือกบริการก่อน --</option>
+  </select>
+
+  <label for="linkInput">ลิงก์โพสต์/โปรไฟล์</label>
+  <input type="text" id="linkInput" placeholder="https://tiktok.com/@user/..." />
+
+  <p class="price" id="priceDisplay">ราคาจะขึ้นเมื่อเลือกจำนวน</p>
+
+  <label for="slipInput">อัปโหลดสลิป</label>
+  <input type="file" id="slipInput" accept="image/*" />
+  <img id="slipPreview" class="slip-preview" style="display:none;" />
+
+  <button id="submitBtn" disabled>แจ้งโอนเงิน</button>
+
+  <script>
+    const prices = {
+      TikTok: { 'ยอดวิว': 7, 'ไลค์': 25, 'ติดตาม': 139 },
+      Facebook: { 'ติดตาม': 199 }
+    };
+
+    const amounts = {
+      'ยอดวิว': [1000, 5000, 10000],
+      'ไลค์': [1000, 5000, 10000],
+      'ติดตาม': [1000, 5000, 10000]
+    };
+
+    let selectedApp = '', selectedService = '', selectedAmount = 0, slipBase64 = '';
+    const appSelect = document.getElementById('appSelect');
+    const serviceSelect = document.getElementById('serviceSelect');
+    const amountSelect = document.getElementById('amountSelect');
+    const linkInput = document.getElementById('linkInput');
+    const slipInput = document.getElementById('slipInput');
+    const slipPreview = document.getElementById('slipPreview');
+    const priceDisplay = document.getElementById('priceDisplay');
+    const submitBtn = document.getElementById('submitBtn');
+
+    appSelect.addEventListener('change', () => {
+      selectedApp = appSelect.value;
+      serviceSelect.innerHTML = '<option value="">-- เลือกบริการ --</option>';
+      if (selectedApp === 'TikTok') serviceSelect.innerHTML += '<option>ยอดวิว</option><option>ไลค์</option><option>ติดตาม</option>';
+      if (selectedApp === 'Facebook') serviceSelect.innerHTML += '<option>ติดตาม</option>';
+      serviceSelect.disabled = false;
+      amountSelect.disabled = true;
+    });
+
+    serviceSelect.addEventListener('change', () => {
+      selectedService = serviceSelect.value;
+      amountSelect.innerHTML = '<option value="">-- เลือกจำนวน --</option>';
+      (amounts[selectedService] || []).forEach(n => {
+        amountSelect.innerHTML += `<option value="${n}">${n.toLocaleString()}</option>`;
+      });
+      amountSelect.disabled = false;
+    });
+
+    amountSelect.addEventListener('change', () => {
+      selectedAmount = parseInt(amountSelect.value);
+      updatePrice();
+    });
+
+    slipInput.addEventListener('change', () => {
+      const file = slipInput.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          slipBase64 = reader.result.split(',')[1];
+          slipPreview.src = reader.result;
+          slipPreview.style.display = 'block';
+          checkCanSubmit();
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    linkInput.addEventListener('input', checkCanSubmit);
+
+    function updatePrice() {
+      if (selectedApp && selectedService && selectedAmount > 0) {
+        let pricePer1000 = prices[selectedApp][selectedService];
+        let price = (pricePer1000 * selectedAmount) / 1000;
+        priceDisplay.textContent = `ราคาที่ต้องชำระ: ${price.toLocaleString()} บาท`;
+        checkCanSubmit();
+      }
+    }
+
+    function checkCanSubmit() {
+      submitBtn.disabled = !(selectedApp && selectedService && selectedAmount && linkInput.value.trim() && slipBase64);
+    }
+
+    submitBtn.addEventListener('click', async () => {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "กำลังส่ง...";
+
+      try {
+        // เริ่ม LIFF
+        await liff.init({ liffId: "2008226376-bw91Q1Zp" });
+        const profile = await liff.getProfile();
+
+        const price = (prices[selectedApp][selectedService] * selectedAmount) / 1000;
+        const postData = {
+          userId: profile.userId,
+          displayName: profile.displayName,
+          platform: selectedApp,
+          service: selectedService,
+          amount: selectedAmount,
+          link: linkInput.value.trim(),
+          price: price,
+          slip: slipBase64,
+          fileName: slipInput.files[0].name
+        };
+
+        // ส่งข้อมูลไป Web App
+        const response = await fetch("https://script.google.com/macros/s/AKfycbzlsQ5L84DE6T7HmUqz4WNOJcr-9AGgpWHAo3VztXXk--Ux7gpbV1Noj-U6xXoEB_p28w/exec", {
+          method: "POST",
+          body: JSON.stringify(postData),
+          headers: { "Content-Type": "application/json" }
+        });
+
+        const result = await response.json();
+        if (result.result === "success") {
+          alert("ส่งข้อมูลสำเร็จ ระบบได้รับสลิปแล้ว");
+          location.reload();
+        } else {
+          alert("เกิดข้อผิดพลาด: " + result.message);
+        }
+      } catch (err) {
+        alert("เกิดข้อผิดพลาด: " + err.message);
+      }
+
+      submitBtn.disabled = false;
+      submitBtn.textContent = "แจ้งโอนเงิน";
+    });
+  </script>
+</body>
+</html>
